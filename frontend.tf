@@ -4,48 +4,6 @@ provider "google" {
 }
 
 
-# 静的webサイトホスティング用のS3作成
-resource "aws_s3_bucket" "frontend" {
-    bucket = var.bucket_name
-    force_destroy = true
-}
-
-# バケットのパブリックアクセスをブロック
-resource "aws_s3_bucket_public_access_block" "frontend" {
-    bucket = aws_s3_bucket.frontend.id
-
-    block_public_acls       = true
-    block_public_policy     = true
-    ignore_public_acls      = true
-    restrict_public_buckets = true
-}
-
-# CloudFrontからのアクセスのみ許可するバケットポリシーを設定
-resource "aws_s3_bucket_policy" "frontend" {
-    bucket = aws_s3_bucket.frontend.id # バケットを指定
-    policy = data.aws_iam_policy_document.s3_policy.json # ポリシーを設定
-}
-
-data "aws_caller_identity" "current" {}
-
-# OACからのアクセスを許可するためのポリシーを定義
-data "aws_iam_policy_document" "s3_policy" {
-    statement {
-       principals {
-            type        = "Service"
-            identifiers = ["cloudfront.amazonaws.com"]
-        }
-
-    actions = ["s3:GetObject"]
-    resources = ["${aws_s3_bucket.frontend.arn}/*"]
-    
-    condition {
-    test     = "StringEquals"
-    variable = "AWS:SourceAccount"
-    values   = [data.aws_caller_identity.current.account_id]
-    }
-  }
-}
 
 
 
