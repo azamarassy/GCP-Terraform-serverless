@@ -64,3 +64,51 @@ resource "google_compute_global_forwarding_rule" "http_forwarding_rule" {
   port_range = "80"
   ip_address = google_compute_global_address.cdn_ip.address
 }
+
+# --- DNS, SSL and HTTPS Load Balancer ---
+
+# Cloud DNS Managed Zone
+resource "google_dns_managed_zone" "zone" {
+  name        = "primary-zone"
+  dns_name    = "${var.domain_name}."
+  description = "DNS zone for ${var.domain_name}"
+}
+
+# Google-managed SSL certificate
+resource "google_compute_managed_ssl_certificate" "ssl_certificate" {
+  name    = "managed-cert"
+  domains = [var.domain_name, "www.${var.domain_name}"]
+}
+
+# HTTPS Target Proxy
+resource "google_compute_target_https_proxy" "https_proxy" {
+  name             = "https-proxy"
+  url_map          = google_compute_url_map.url_map.id
+  ssl_certificates = [google_compute_managed_ssl_certificate.ssl_certificate.id]
+}
+
+# HTTPS Forwarding Rule
+resource "google_compute_global_forwarding_rule" "https_forwarding_rule" {
+  name       = "https-forwarding-rule"
+  target     = google_compute_target_https_proxy.https_proxy.id
+  port_range = "443"
+  ip_address = google_compute_global_address.cdn_ip.address
+}
+
+# DNS A Record for root domain
+resource "google_dns_record_set" "root" {
+  name         = google_dns_managed_zone.zone.dns_name
+  type         = "A"
+  ttl          = 300
+  managed_zone = google_dns_managed_zone.zone.name
+  rrdatas      = [google_compute_global_address.cdn_ip.address]
+}
+
+# DNS A Record for www subdomain
+resource "google_dns_record_set" "www" {
+  name         = "www.${google_dns_managed_zone.zone.dns_name}"
+  type         = "A"
+  ttl          = 300
+  managed_zone = google_dns_managed_zone.zone.name
+  rrdatas      = [google_compute_global_address.cdn_ip.address]
+}
