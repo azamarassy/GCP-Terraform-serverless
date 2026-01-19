@@ -1,3 +1,8 @@
+provider "google" {
+  project = var.project_id
+  region  = var.region
+}
+
 # ACM証明書発行
 resource "aws_acm_certificate" "cert" {
     provider          = aws.us-east-1
