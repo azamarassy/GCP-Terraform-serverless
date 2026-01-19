@@ -17,6 +17,13 @@ resource "google_storage_bucket" "frontend" {
   }
 }
 
+# GCSバケットへのパブリックアクセスを許可
+resource "google_storage_bucket_iam_member" "public_access" {
+  bucket = google_storage_bucket.frontend.name
+  role   = "roles/storage.objectViewer"
+  member = "allUsers"
+}
+
 
 
 
