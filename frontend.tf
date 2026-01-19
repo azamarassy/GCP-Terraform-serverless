@@ -78,7 +78,9 @@ resource "google_dns_managed_zone" "zone" {
 # Google-managed SSL certificate
 resource "google_compute_managed_ssl_certificate" "ssl_certificate" {
   name    = "managed-cert"
-  domains = [var.domain_name, "www.${var.domain_name}"]
+  managed {
+    domains = [var.domain_name, "www.${var.domain_name}"]
+  }
 }
 
 # HTTPS Target Proxy
