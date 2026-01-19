@@ -1,0 +1,14 @@
+# tfstateファイル（terraform配下すべて）
+**/*.tfstate
+**/*.tfstate.*
+
+# tfvarsファイル（環境変数など）
+**/*.tfvars
+**/*.tfvars.json
+
+# .terraformディレクトリ（全階層）
+**/.terraform/
+
+# 状態ファイル管理用ファイル
+/terraform/.terraform.lock.hcl
+

@@ -1,0 +1,6 @@
+repos:
+  # 1. 【秘匿情報の検知】APIキー、AWSアクセスキー、パスワード等の漏洩防止
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.2
+    hooks:
+      - id: gitleaks
