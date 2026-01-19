@@ -3,6 +3,21 @@ provider "google" {
   region  = var.region
 }
 
+# 静的webサイトホスティング用のGCSバケット作成
+resource "google_storage_bucket" "frontend" {
+  name          = var.bucket_name
+  location      = var.region
+  force_destroy = true
+
+  uniform_bucket_level_access = true
+
+  website {
+    main_page_suffix = "index.html"
+    not_found_page   = "404.html"
+  }
+}
+
+
 
 
 
