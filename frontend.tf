@@ -1,14 +1,3 @@
-# 既存のHosted Zoneを参照
-data "aws_route53_zone" "primary" {
-    name         = var.domain_name
-    private_zone = false
-}
-
-provider "aws" {
-  alias  = "us-east-1"
-  region = "us-east-1"
-}
-
 # ACM証明書発行
 resource "aws_acm_certificate" "cert" {
     provider          = aws.us-east-1
