@@ -3,40 +3,6 @@ provider "google" {
   region  = var.region
 }
 
-# ACM証明書発行
-resource "aws_acm_certificate" "cert" {
-    provider          = aws.us-east-1
-    domain_name       = var.domain_name # ドメイン名を指定
-    validation_method = "DNS" # DNS検証を指定
-    subject_alternative_names = ["*.${var.domain_name}"] # サブドメインも含めて検証
-    lifecycle {
-        create_before_destroy = true # 既存の証明書を消す前に新規作成することでダウンタイムをなくす
-    }
-}
-
-# ACMを発行する際、ドメインがユーザーのものか確認するためにDNSレコードを作成してawsが確認するためのコード
-resource "aws_route53_record" "cert_validation" {
-    for_each = { # DNSレコード検証に必要な情報（レコードセット : レコード名、タイプ、値など） を格納
-        for dvo in aws_acm_certificate.cert.domain_validation_options : dvo.domain_name => {
-            name   = dvo.resource_record_name
-            type   = dvo.resource_record_type
-            record = dvo.resource_record_value
-        }
-    }
-    allow_overwrite = true
-    zone_id = data.aws_route53_zone.primary.zone_id # DNSレコードを作成するホストゾーンを指定
-    name    = each.value.name # for_eachで取得したnameの値を取得
-    type    = each.value.type # CNAMEなどのレコードタイプを取得
-    ttl     = 60              # レコードのキャッシュ有効期限を60秒に設定
-    records = [each.value.record] # DNSレコードの値を取得
-}
-
-# ACM証明書の発行プロセスにおいて、DNS検証が完了するのを待機
-resource "aws_acm_certificate_validation" "cert" {
-    provider                = aws.us-east-1
-    certificate_arn         = aws_acm_certificate.cert.arn # 証明書を指定
-    validation_record_fqdns = [for record in aws_route53_record.cert_validation : record.fqdn] # サブドメインの作成も含めて待機
-}
 
 # 静的webサイトホスティング用のS3作成
 resource "aws_s3_bucket" "frontend" {
