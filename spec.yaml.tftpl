@@ -1,0 +1,19 @@
+swagger: '2.0'
+info:
+  title: My Backend API
+  description: API for the backend function
+  version: 1.0.0
+schemes:
+  - https
+produces:
+  - application/json
+paths:
+  /data:
+    get:
+      summary: Calls the backend function
+      operationId: getData
+      x-google-backend:
+        address: ${function_url}
+      responses:
+        '200':
+          description: A successful response

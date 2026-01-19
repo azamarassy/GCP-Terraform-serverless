@@ -58,3 +58,39 @@ resource "google_cloud_run_service_iam_member" "invoker" {
   role     = "roles/run.invoker"
   member   = "allUsers"
 }
+
+# --- API Gateway ---
+
+# API Gateway API
+resource "google_api_gateway_api" "api" {
+  provider = google-beta
+  api_id   = "my-backend-api"
+}
+
+# API Gateway API Config (OpenAPI spec)
+resource "google_api_gateway_api_config" "api_config" {
+  provider      = google-beta
+  api           = google_api_gateway_api.api.api_id
+  api_config_id = "my-backend-api-config"
+
+  openapi_documents {
+    document {
+      path     = "spec.yaml"
+      contents = templatefile("${path.module}/spec.yaml.tftpl", {
+        function_url = google_cloudfunctions2_function.backend_function.service_config[0].uri
+      })
+    }
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+# API Gateway
+resource "google_api_gateway_gateway" "gateway" {
+  provider      = google-beta
+  api_config    = google_api_gateway_api_config.id
+  gateway_id    = "my-backend-gateway"
+  region        = var.region
+}
