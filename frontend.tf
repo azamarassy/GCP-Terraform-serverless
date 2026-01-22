@@ -40,6 +40,8 @@ resource "google_compute_global_address" "cdn_ip" {
 
 # GCSバケットをバックエンドとして設定
 resource "google_compute_backend_bucket" "frontend_backend" {
+  provider = google-beta
+
   name            = "frontend-backend-bucket"
   bucket_name     = google_storage_bucket.frontend.name
   enable_cdn      = true
