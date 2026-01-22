@@ -1,94 +1,138 @@
-学習のために構築した環境です。
+# GCP Serverless Web Application with Terraform
 
-# 目次
+This repository provides a Terraform configuration to deploy a serverless web application on Google Cloud Platform (GCP).
+It sets up a static frontend hosted on Google Cloud Storage (GCS) and a dynamic API backend using Cloud Functions and API Gateway. The entire infrastructure is managed as code using Terraform.
 
-* [1. 実装要件](#1-実装要件)
-* [2. 本構成のメリット](#2-本構成のメリット)
-* [3. 設計思想と技術選定のポイント](#3-設計思想と技術選定のポイント)
-* [4. 構築時の注意点](#4-構築時の注意点)
-* [5. 参照](#5-参照)
+## Architecture
 
-# 1. 実装要件
+The following diagram illustrates the infrastructure architecture:
 
-下記を実装し動作させることが今回の学習目的です。
+```mermaid
+graph TD
+    subgraph User Request Flow
+        User[<i class="fa fa-user"></i> User] -->|HTTPS| DNS[Cloud DNS]
+    end
 
- * 静的フロントエンド： S3 + CloudFront
- * 動的処理（API）： API Gateway + Lambda
- * セキュリティ： AWS WAF による保護、ACMによるHTTPS化
- * 認証： CloudFrontからAPI GatewayへAPI Keyを付与してバックエンドを保護
- * 管理： TerraformによるInfrastructure as Code (IaC)
+    subgraph Frontend
+        DNS -->|A Record| LB[Cloud Load Balancing / CDN]
+        LB -->|Backend| GCS[Cloud Storage Bucket<br/>(Static Website)]
+    end
 
-セキュリティを意識しつつ、サーバーレスで一般的に使われている構成にしました。
+    subgraph Backend
+        LB -->|Backend| APIGW[API Gateway]
+        APIGW -->|Invokes| GCF[Cloud Function<br/>(Python API)]
+    end
 
-![Lambda構成図.jpg](Lambda構成図.jpg)
+    subgraph Security
+        LB -- Attaches --> Armor[Cloud Armor<br/>(WAF Policy)]
+        LB -- Uses --> SSL[Google-managed SSL Certificate]
+    end
 
----
+    style User fill:#d1e7dd,stroke:#333,stroke-width:2px
+    style DNS fill:#cff4fc,stroke:#333,stroke-width:2px
+    style LB fill:#fff3cd,stroke:#333,stroke-width:2px
+    style GCS fill:#f8d7da,stroke:#333,stroke-width:2px
+    style APIGW fill:#cfe2ff,stroke:#333,stroke-width:2px
+    style GCF fill:#e2d1f9,stroke:#333,stroke-width:2px
+    style Armor fill:#f8d7da,stroke:#333,stroke-width:2px
+    style SSL fill:#d1e7dd,stroke:#333,stroke-width:2px
+```
 
-# 2. 本構成のメリット
+### Key Components
 
- * CloudFront をS3, API Gateway前段に配置
-   * セキュリティ向上: OAC（Origin Access Control）によるS3の完全非公開化と、AWS WAFの一括適用が可能
-   * パフォーマンス: 世界各地のエッジロケーションでのキャッシュによる高速配信
-   * ドメイン統合: S3とAPI Gatewayのドメインを1つに集約し、CORS問題を回避
- * サーバーレス（API Gateway + Lambda）の採用
-   * 運用負荷の軽減: サーバーのOS管理やパッチ当てが不要になり、管理コストを最小化
-   * 高いスケーラビリティ: リクエスト量に応じて自動でスケーリングされるため、急なトラフィック増にも柔軟に対応  
+*   **Frontend**:
+    *   **Google Cloud Storage (GCS)**: Hosts the static website content (HTML, CSS, JavaScript).
+    *   **Cloud Load Balancing & CDN**: Provides a single global entry point with a static IP, caches content, and terminates SSL.
+    *   **Cloud Armor**: A Web Application Firewall (WAF) to protect the application from common web attacks and control access (e.g., allow traffic only from specific regions).
 
----
-# 3. 設計思想と技術選定のポイント
+*   **Backend**:
+    *   **Cloud Functions (2nd gen)**: A serverless function written in Python that runs your backend API logic.
+    *   **API Gateway**: Exposes the Cloud Function as a managed, secure, and scalable API. It uses an OpenAPI specification to define the API structure.
 
-## 3-1. 多層防御によるセキュリティ設計
+*   **Networking & DNS**:
+    *   **Cloud DNS**: Manages the domain's DNS records.
+    *   **Google-managed SSL Certificate**: Provides free, auto-renewing SSL certificates for the custom domain.
 
- * S3の完全非公開化とWAF保護
-   OACを利用してS3への直接アクセスを遮断し、CloudFrontを経由したアクセスのみを許可。すべてのWebトラフィックにAWS WAFを強制適用し、設定ミスによる情報流出リスクを排除しました。
- * バックエンド（Lambda）の多層防御
-   * APIキー認証と利用プラン: 特定のキーを持つユーザーのみが、定義されたレート制限（スロットリング）の範囲内で実行できる仕組みを導入。
-   * 最小権限の原則: Lambdaのリソースベースポリシーにより、「API Gatewayの特定のパス・メソッドからの呼び出しのみ」を明示的に許可し、不正な実行を防止。
- * トラフィック制御による保護
-   Usage Plan（利用プラン）によるレート制限（例：100 req/sec）を設定。DDoS攻撃や予期せぬアクセス集中によるコスト増加やバックエンドのパンクを未然に防ぎます。
- * オリジン直叩きの防止（X-Origin-Verify）
-   API GatewayのURLが漏洩した場合に備え、CloudFrontからカスタムヘッダーを付与し、WAFでその値を検証。正規ルートを経由しないアクセスをインフラレベルで遮断します。
-   
-## 3-2. ネットワーク設計
- * APIエンドポイントの構成
-   CloudFrontが前段に控えているため、API Gatewayは「REGIONAL」タイプを選択しました。
- * Route 53 Aliasレコードの活用​
-Zone Apex（ドメイン名そのもの）でCloudFrontを利用可能にするため、CNAMEではなくRoute 53のAlias機能を利用しています。これにより、ドメイン名を直接CloudFrontのディストリビューションに関連付けています。
-## 3-3. パフォーマンス最適化
+*   **IaC & State Management**:
+    *   **Terraform**: Manages the entire cloud infrastructure as code.
+    *   **GCS Backend**: Stores the Terraform state file (`.tfstate`) remotely in a GCS bucket for collaboration and state locking.
 
- * パスベースのキャッシュ戦略
-   静的コンテンツ（S3）はエッジでキャッシュさせて高速化。一方、動的データ（API）はキャッシュを無効化（Managed-CachingDisabled）し、常に最新データを返すよう制御しました。
-   
-## 3-4. IaC（Terraform）による管理
+## Deployment Steps
 
- * 自動デプロイの整合性担保
-   REST APIやLambdaコードの変更をハッシュ値（triggers / source_code_hash）で検知。修正後の terraform apply で最新の状態が反映されるようにしました。
- * ゼロダウンタイムでの更新
-   create_before_destroy ライフサイクルを活用し、リソース更新時に新しいものを作成してから古いものを消す設定にしています。
-   
----   
-# 4. 構築時の注意点
-実装にあたって特に注意すべき、Terraform構築時に反映されない原因などを4点にまとめました。
- * CloudFront の ACM は必ず us-east-1
-   メインの構築リージョンが東京（ap-northeast-1）であっても、CloudFrontに関連付ける証明書だけはバージニア北部で作成する必要があります。
- * API Gateway は Deployment を明示的に作らないと反映されない
-   API Gatewayは「編集中の設定」と「公開済みの設定（ステージ）」が分離されているため、明示的なデプロイ操作が不可欠です。
- * 変更検知用に triggers を活用する
-   aws_api_gateway_deployment 内で triggers ブロックを使い、メソッドやLambdaのIDを監視しましょう。これがないと、Terraform側でコードを書き換えてもAPI Gateway側が再デプロイされず、古い挙動が残ります。
- * キャッシュ挙動はパス単位で分ける
-   * 静的コンテンツ (/index.html, /static/*): CloudFrontにキャッシュさせる（Managed-CachingOptimized）。
-   * APIリクエスト (/data): キャッシュを無効化する（Managed-CachingDisabled）。  
+Follow these steps to deploy the infrastructure.
 
+### 1. Prerequisites
 
----
+*   Install [Google Cloud SDK](https://cloud.google.com/sdk/docs/install) and authenticate:
+    ```sh
+    gcloud auth login
+    gcloud auth application-default login
+    gcloud config set project YOUR_PROJECT_ID
+    ```
+*   Install [Terraform](https://learn.hashicorp.com/tutorials/terraform/install-cli) (version >= 1.0).
+*   Create a GCS bucket to store the Terraform state file. This must be done manually before running Terraform.
+    ```sh
+    gsutil mb gs://your-terraform-state-bucket-name
+    ```
+*   Update `backend.tf` to point to your newly created bucket.
 
-# 5. 参照
-[CloudFrontドキュメント](https://docs.aws.amazon.com/ja_jp/cloudfront/?id=docs_gateway)
+    ```hcl
+    # backend.tf
+    terraform {
+      backend "gcs" {
+        bucket  = "your-terraform-state-bucket-name" # <-- UPDATE THIS
+        prefix  = "terraform/state"
+      }
+    }
+    ```
 
-[APIGatewayドキュメント](https://docs.aws.amazon.com/ja_jp/apigateway/latest/developerguide/api-gateway-documenting-api.html)
+### 2. Configuration
 
-[S3ドキュメント](https://docs.aws.amazon.com/ja_jp/s3/?icmpid=docs_homepage_featuredsvcs)
+Create a `terraform.tfvars` file in the root of the project to specify your environment-specific variables.
 
-[Lambdaドキュメント](https://docs.aws.amazon.com/ja_jp/lambda/?icmpid=docs_homepage_featuredsvcs)
+```hcl
+# terraform.tfvars
 
-[Terraformドキュメント](https://registry.terraform.io/providers/hashicorp/aws/latest/docs)
+project_id  = "your-gcp-project-id"
+region      = "asia-northeast1"
+domain_name = "your-domain.com"
+bucket_name = "your-unique-frontend-bucket-name"
+```
+
+### 3. Execution
+
+1.  **Initialize Terraform**:
+    Downloads the necessary providers and initializes the backend.
+    ```sh
+    terraform init
+    ```
+
+2.  **Apply Configuration**:
+    Creates the resources on GCP. Review the plan and type `yes` to approve.
+    ```sh
+    terraform apply
+    ```
+
+After the apply is complete, Terraform will output the DNS name servers, CDN IP address, and other relevant URLs. You will need to update your domain's registrar to point to the name servers provided by Cloud DNS.
+
+## Terraform Variables
+
+The following variables are used in this project:
+
+| Name          | Description                                  | Type   | Default             | Required |
+|---------------|----------------------------------------------|--------|---------------------|:--------:|
+| `project_id`  | The GCP project ID to deploy resources to.   | `string` | -                   |   Yes    |
+| `region`      | The GCP region to deploy resources to.       | `string` | `asia-northeast1`   |    No    |
+| `domain_name` | The main domain name for the application.    | `string` | `example.com`       |    No    |
+| `bucket_name` | The name for the GCS bucket.                 | `string` | `sample-gcs-bucket-name` | No    |
+
+## Terraform Outputs
+
+The following outputs are generated after applying the configuration:
+
+| Name                 | Description                                  |
+|----------------------|----------------------------------------------|
+| `api_gateway_url`    | The URL of the API Gateway.                  |
+| `cloud_function_url` | The trigger URL of the Cloud Function.       |
+| `cdn_ip_address`     | The public IP address of the CDN Load Balancer. |
+| `dns_name_servers`   | The name servers for the Cloud DNS zone.     |
